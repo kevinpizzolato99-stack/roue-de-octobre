@@ -40,6 +40,7 @@
     collectionResults: document.querySelector('#collectionResults'), challengeList: document.querySelector('#challengeList'),
     challengeRewards: document.querySelector('#challengeRewards'), shopCoins: document.querySelector('#shopCoins'),
     shopOffers: document.querySelector('#shopOffers'), effects: document.querySelector('#effectsToggle'),
+    sounds: document.querySelector('#soundToggle'), music: document.querySelector('#musicToggle'),
     rewardModal: document.querySelector('#rewardModal'), rewardEyebrow: document.querySelector('#rewardEyebrow'),
     rewardTitle: document.querySelector('#rewardTitle'), rewardObject: document.querySelector('#rewardObject'),
     rewardName: document.querySelector('#rewardName'), rewardCopy: document.querySelector('#rewardCopy')
@@ -48,6 +49,10 @@
   let rotation = 0;
   let spinning = false;
   let canvasContext = dom.canvas.getContext('2d');
+  let audioContext = null;
+  let masterGain = null;
+  let musicTimer = null;
+  let musicChordIndex = 0;
 
   function createGiftCatalog() {
     const names = ['Brume', 'Lueur', 'Velours', 'Éclat', 'Mystère', 'Minuit', 'Cendre', 'Lune', 'Sortilège', 'Nocturne', 'Cristal', 'Citrouille', 'Flamme', 'Ombre', 'Étoile', 'Potion', 'Sorcier', 'Spectre', 'Rêve', 'Encre'];
@@ -57,7 +62,7 @@
   }
 
   function defaultState() {
-    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, claimedChallenges: [], effects: true };
+    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, claimedChallenges: [], effects: true, sounds: true, music: false };
   }
 
   function loadState() {
@@ -74,7 +79,9 @@
         giftsWon: nonNegativeInteger(saved.giftsWon, 0),
         coinsEarned: nonNegativeInteger(saved.coinsEarned, 0),
         claimedChallenges: Array.isArray(saved.claimedChallenges) ? saved.claimedChallenges.filter(id => challenges.some(challenge => challenge.id === id)) : [],
-        effects: saved.effects !== false
+        effects: saved.effects !== false,
+        sounds: saved.sounds !== false,
+        music: saved.music === true
       };
     } catch {
       return fallback;
@@ -96,7 +103,13 @@
 
   function registerAutoSave() {
     const saveWhenHidden = () => {
-      if (document.visibilityState === 'hidden') saveState();
+      if (document.visibilityState === 'hidden') {
+        saveState();
+        stopMusic();
+        if (audioContext && audioContext.state === 'running') audioContext.suspend().catch(() => {});
+      } else if (state.music) {
+        startMusic();
+      }
     };
     window.addEventListener('pagehide', saveState);
     window.addEventListener('beforeunload', saveState);
@@ -107,8 +120,104 @@
     return {
       coins: state.coins, spins: state.spins, collection: [...state.collection],
       totalSpins: state.totalSpins, giftsWon: state.giftsWon,
-      coinsEarned: state.coinsEarned, claimedChallenges: [...state.claimedChallenges], effects: state.effects
+      coinsEarned: state.coinsEarned, claimedChallenges: [...state.claimedChallenges],
+      effects: state.effects, sounds: state.sounds, music: state.music
     };
+  }
+
+  function getAudioContext() {
+    if (audioContext) return audioContext;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    try {
+      audioContext = new AudioContextClass();
+      masterGain = audioContext.createGain();
+      masterGain.gain.value = 0.7;
+      masterGain.connect(audioContext.destination);
+      return audioContext;
+    } catch {
+      audioContext = null;
+      masterGain = null;
+      return null;
+    }
+  }
+
+  function playTone(frequency, startTime, duration, volume, waveform = 'sine', attack = 0.02) {
+    const context = getAudioContext();
+    if (!context || !masterGain) return;
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    oscillator.type = waveform;
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+    envelope.gain.setValueAtTime(0.0001, startTime);
+    envelope.gain.linearRampToValueAtTime(volume, startTime + attack);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    oscillator.connect(envelope);
+    envelope.connect(masterGain);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration + 0.03);
+  }
+
+  function playWheelTick() {
+    if (!state.sounds) return;
+    const context = getAudioContext();
+    if (!context) return;
+    const oscillator = context.createOscillator();
+    const envelope = context.createGain();
+    const now = context.currentTime;
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(920, now);
+    oscillator.frequency.exponentialRampToValueAtTime(390, now + 0.045);
+    envelope.gain.setValueAtTime(0.0001, now);
+    envelope.gain.linearRampToValueAtTime(0.045, now + 0.004);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+    oscillator.connect(envelope);
+    envelope.connect(masterGain);
+    oscillator.start(now);
+    oscillator.stop(now + 0.06);
+  }
+
+  function playRewardSound() {
+    if (!state.sounds) return;
+    const context = getAudioContext();
+    if (!context) return;
+    if (context.state === 'suspended') context.resume().catch(() => {});
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((frequency, index) => {
+      const startTime = context.currentTime + index * 0.12;
+      playTone(frequency, startTime, 0.72, 0.085, 'sine', 0.025);
+      if (index > 0) playTone(frequency * 1.5, startTime + 0.035, 0.48, 0.025, 'sine', 0.03);
+    });
+  }
+
+  function playAmbientChord() {
+    const context = getAudioContext();
+    if (!context || !state.music) return;
+    const chords = [
+      [261.63, 329.63, 392.00],
+      [220.00, 261.63, 329.63],
+      [174.61, 220.00, 261.63],
+      [196.00, 246.94, 293.66]
+    ];
+    const chord = chords[musicChordIndex % chords.length];
+    musicChordIndex += 1;
+    chord.forEach((frequency, index) => playTone(frequency, context.currentTime + index * 0.16, 2.8, 0.018, 'sine', 0.65));
+  }
+
+  function startMusic() {
+    const context = getAudioContext();
+    if (!context || !state.music) return;
+    if (context.state === 'suspended') context.resume().catch(() => {});
+    if (musicTimer !== null) return;
+    playAmbientChord();
+    musicTimer = window.setInterval(playAmbientChord, 2800);
+  }
+
+  function stopMusic() {
+    if (musicTimer !== null) {
+      window.clearInterval(musicTimer);
+      musicTimer = null;
+    }
   }
 
   function registerBridge() {
@@ -131,6 +240,8 @@
     dom.spin.disabled = spinning || state.spins < 1;
     dom.spinStatus.textContent = spinning ? 'LA ROUE TOURNE…' : state.spins > 0 ? 'PRÊTE À TOURNER' : 'PLUS DE TOURS';
     dom.effects.checked = state.effects;
+    dom.sounds.checked = state.sounds;
+    dom.music.checked = state.music;
     document.body.classList.toggle('no-effects', !state.effects);
     dom.challengeRewards.textContent = String(state.claimedChallenges.length);
     dom.shopCoins.textContent = String(state.coins);
@@ -213,6 +324,9 @@
 
   function spin() {
     if (spinning || state.spins < 1) return;
+    const context = getAudioContext();
+    if (context && context.state === 'suspended') context.resume().catch(() => {});
+    if (state.music) startMusic();
     spinning = true;
     state.spins -= 1;
     state.totalSpins += 1;
@@ -229,11 +343,17 @@
     const totalRotation = startRotation + FULL_TURN * (5 + Math.floor(Math.random() * 3)) + delta;
     const startedAt = performance.now();
     const duration = 4300;
+    let lastTickSector = Math.floor(startRotation / step);
 
     function animate(now) {
       const t = Math.min(1, (now - startedAt) / duration);
       const eased = 1 - Math.pow(1 - t, 4);
       rotation = startRotation + (totalRotation - startRotation) * eased;
+      const tickSector = Math.floor(rotation / step);
+      if (tickSector !== lastTickSector) {
+        lastTickSector = tickSector;
+        playWheelTick();
+      }
       renderWheel();
       if (t < 1) {
         requestAnimationFrame(animate);
@@ -272,6 +392,7 @@
   }
 
   function showReward(result) {
+    if (state.sounds) playRewardSound();
     dom.rewardEyebrow.textContent = result.copy.includes('Nouveau cadeau') ? 'NOUVEAU CADEAU' : 'RÉCOMPENSE OBTENUE';
     dom.rewardTitle.textContent = result.copy.includes('Collection complète') ? 'Collection complète !' : 'C’est gagné !';
     dom.rewardObject.textContent = result.icon;
@@ -352,6 +473,22 @@
   dom.spin.addEventListener('click', spin);
   dom.collectionFilter.addEventListener('change', renderCollection);
   dom.effects.addEventListener('change', () => { state.effects = dom.effects.checked; saveState(); render(); });
+  dom.sounds.addEventListener('change', () => {
+    state.sounds = dom.sounds.checked;
+    if (state.sounds) {
+      const context = getAudioContext();
+      if (context && context.state === 'suspended') context.resume().catch(() => {});
+    }
+    saveState();
+    render();
+  });
+  dom.music.addEventListener('change', () => {
+    state.music = dom.music.checked;
+    if (state.music) startMusic();
+    else stopMusic();
+    saveState();
+    render();
+  });
   dom.challengeList.addEventListener('click', event => {
     const button = event.target.closest('[data-claim]');
     if (button) claimChallenge(button.dataset.claim);
