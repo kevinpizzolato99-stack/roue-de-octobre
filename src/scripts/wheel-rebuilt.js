@@ -2,6 +2,10 @@
   'use strict';
 
   const STORAGE_KEY = 'bezi-gift-wheel-rebuilt-v2';
+  const EVENT_REMINDER_DATE = new Date(2026, 9, 4, 6, 0, 0, 0);
+  const EVENT_GIFT_DATE = new Date(2026, 9, 4, 12, 0, 0, 0);
+  const EVENT_GIFT_END = new Date(2026, 9, 4, 13, 0, 0, 0);
+  const EVENT_GIFT_COINS = 500;
   const FULL_TURN = Math.PI * 2;
   const gifts = createGiftCatalog();
   const segments = [
@@ -43,7 +47,8 @@
     sounds: document.querySelector('#soundToggle'), music: document.querySelector('#musicToggle'),
     rewardModal: document.querySelector('#rewardModal'), rewardEyebrow: document.querySelector('#rewardEyebrow'),
     rewardTitle: document.querySelector('#rewardTitle'), rewardObject: document.querySelector('#rewardObject'),
-    rewardName: document.querySelector('#rewardName'), rewardCopy: document.querySelector('#rewardCopy')
+    rewardName: document.querySelector('#rewardName'), rewardCopy: document.querySelector('#rewardCopy'),
+    eventCountdown: document.querySelector('#eventCountdown')
   };
   let state = loadState();
   let rotation = 0;
@@ -53,6 +58,8 @@
   let masterGain = null;
   let musicTimer = null;
   let musicChordIndex = 0;
+  let rewardModalMode = 'reward';
+  let eventAnnouncementDismissed = false;
 
   function createGiftCatalog() {
     const names = ['Brume', 'Lueur', 'Velours', 'Éclat', 'Mystère', 'Minuit', 'Cendre', 'Lune', 'Sortilège', 'Nocturne', 'Cristal', 'Citrouille', 'Flamme', 'Ombre', 'Étoile', 'Potion', 'Sorcier', 'Spectre', 'Rêve', 'Encre'];
@@ -62,7 +69,7 @@
   }
 
   function defaultState() {
-    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, claimedChallenges: [], effects: true, sounds: true, music: false };
+    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, claimedChallenges: [], effects: true, sounds: true, music: false, eventGiftClaimed: false };
   }
 
   function loadState() {
@@ -81,7 +88,8 @@
         claimedChallenges: Array.isArray(saved.claimedChallenges) ? saved.claimedChallenges.filter(id => challenges.some(challenge => challenge.id === id)) : [],
         effects: saved.effects !== false,
         sounds: saved.sounds !== false,
-        music: saved.music === true
+        music: saved.music === true,
+        eventGiftClaimed: saved.eventGiftClaimed === true
       };
     } catch {
       return fallback;
@@ -121,7 +129,8 @@
       coins: state.coins, spins: state.spins, collection: [...state.collection],
       totalSpins: state.totalSpins, giftsWon: state.giftsWon,
       coinsEarned: state.coinsEarned, claimedChallenges: [...state.claimedChallenges],
-      effects: state.effects, sounds: state.sounds, music: state.music
+      effects: state.effects, sounds: state.sounds, music: state.music,
+      eventGiftClaimed: state.eventGiftClaimed
     };
   }
 
@@ -391,13 +400,128 @@
     return { icon: gift.icon, title: gift.name, copy: 'Nouveau cadeau ajouté à ta collection !' };
   }
 
+  function isEventDay(date) {
+    return date.getFullYear() === EVENT_GIFT_DATE.getFullYear()
+      && date.getMonth() === EVENT_GIFT_DATE.getMonth()
+      && date.getDate() === EVENT_GIFT_DATE.getDate();
+  }
+
+  function showEventAnnouncement() {
+    rewardModalMode = 'event-announcement';
+    dom.rewardEyebrow.textContent = 'À NE PAS MANQUER';
+    dom.rewardTitle.textContent = 'Rappel : cadeau à 12 h !';
+    dom.rewardObject.textContent = '🎁';
+    dom.rewardName.textContent = `${EVENT_GIFT_COINS} pièces à récupérer`;
+    dom.rewardCopy.textContent = 'Le cadeau unique sera disponible aujourd’hui, dimanche 4 octobre, de 12 h à 13 h (heure locale).';
+    dom.eventCountdown.hidden = true;
+    document.querySelector('#closeRewardButton').textContent = 'D’ACCORD';
+    dom.rewardModal.hidden = false;
+    document.querySelector('#closeRewardButton').focus();
+  }
+
+  function updateEventCountdown() {
+    if (rewardModalMode !== 'event-claim') return;
+    const remainingSeconds = Math.max(0, Math.ceil((EVENT_GIFT_END.getTime() - Date.now()) / 1000));
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = remainingSeconds % 60;
+    dom.eventCountdown.textContent = `Temps restant : ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    if (remainingSeconds === 0) expireEventGift();
+  }
+
+  function showScheduledGift() {
+    if (state.eventGiftClaimed || Date.now() < EVENT_GIFT_DATE.getTime() || Date.now() >= EVENT_GIFT_END.getTime()) return;
+    rewardModalMode = 'event-claim';
+    dom.rewardEyebrow.textContent = 'CADEAU EXCEPTIONNEL';
+    dom.rewardTitle.textContent = 'Un cadeau unique t’attend !';
+    dom.rewardObject.textContent = '🎁';
+    dom.rewardName.textContent = `${EVENT_GIFT_COINS} pièces`;
+    dom.rewardCopy.textContent = 'Disponible le dimanche 4 octobre 2026, de 12 h à 13 h (heure locale). Réclame ton cadeau avant la fin du compte à rebours.';
+    dom.eventCountdown.hidden = false;
+    document.querySelector('#closeRewardButton').textContent = 'RÉCUPÉRER MES 500 PIÈCES';
+    dom.rewardModal.hidden = false;
+    updateEventCountdown();
+    document.querySelector('#closeRewardButton').focus();
+  }
+
+  function expireEventGift() {
+    if (rewardModalMode !== 'event-claim') return;
+    rewardModalMode = 'event-expired';
+    dom.rewardEyebrow.textContent = 'OFFRE TERMINÉE';
+    dom.rewardTitle.textContent = 'Le cadeau n’est plus disponible';
+    dom.rewardObject.textContent = '⏰';
+    dom.rewardName.textContent = 'La période est terminée';
+    dom.rewardCopy.textContent = 'Cette offre unique était disponible le dimanche 4 octobre, de 12 h à 13 h.';
+    dom.eventCountdown.textContent = 'Temps restant : 00:00';
+    document.querySelector('#closeRewardButton').textContent = 'FERMER';
+  }
+
+  function claimEventGift() {
+    if (rewardModalMode !== 'event-claim' || state.eventGiftClaimed) return;
+    const now = Date.now();
+    if (now < EVENT_GIFT_DATE.getTime()) return;
+    if (now >= EVENT_GIFT_END.getTime()) {
+      expireEventGift();
+      return;
+    }
+    state.coins += EVENT_GIFT_COINS;
+    state.eventGiftClaimed = true;
+    saveState();
+    render();
+    rewardModalMode = 'event-confirmation';
+    dom.rewardEyebrow.textContent = 'CADEAU RÉCUPÉRÉ';
+    dom.rewardTitle.textContent = '500 pièces ajoutées !';
+    dom.rewardObject.textContent = '🪙';
+    dom.rewardName.textContent = 'Cadeau unique';
+    dom.rewardCopy.textContent = 'Les 500 pièces ont été ajoutées à ton portefeuille.';
+    dom.eventCountdown.hidden = true;
+    document.querySelector('#closeRewardButton').textContent = 'CONTINUER À JOUER';
+  }
+
+  function checkScheduledGift() {
+    const now = Date.now();
+    if (state.eventGiftClaimed) return;
+    if (now < EVENT_GIFT_DATE.getTime()) {
+      if (isEventDay(new Date(now)) && now >= EVENT_REMINDER_DATE.getTime() && !eventAnnouncementDismissed && dom.rewardModal.hidden) showEventAnnouncement();
+      return;
+    }
+    if (now >= EVENT_GIFT_END.getTime()) {
+      if (!dom.rewardModal.hidden && rewardModalMode === 'event-claim') expireEventGift();
+      return;
+    }
+    if (rewardModalMode === 'event-announcement') {
+      showScheduledGift();
+      return;
+    }
+    if (spinning || !dom.rewardModal.hidden) return;
+    showScheduledGift();
+  }
+
+  function registerScheduledGift() {
+    const delay = Math.max(0, EVENT_GIFT_DATE.getTime() - Date.now());
+    window.setTimeout(checkScheduledGift, delay);
+    window.setInterval(() => {
+      if (rewardModalMode === 'event-claim') updateEventCountdown();
+      checkScheduledGift();
+    }, 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        if (rewardModalMode === 'event-claim') updateEventCountdown();
+        checkScheduledGift();
+      }
+    });
+    checkScheduledGift();
+  }
+
   function showReward(result) {
     if (state.sounds) playRewardSound();
+    rewardModalMode = 'reward';
+    dom.eventCountdown.hidden = true;
     dom.rewardEyebrow.textContent = result.copy.includes('Nouveau cadeau') ? 'NOUVEAU CADEAU' : 'RÉCOMPENSE OBTENUE';
     dom.rewardTitle.textContent = result.copy.includes('Collection complète') ? 'Collection complète !' : 'C’est gagné !';
     dom.rewardObject.textContent = result.icon;
     dom.rewardName.textContent = result.title;
     dom.rewardCopy.textContent = result.copy;
+    document.querySelector('#closeRewardButton').textContent = 'CONTINUER À JOUER';
     dom.rewardModal.hidden = false;
     document.querySelector('#closeRewardButton').focus();
   }
@@ -497,12 +621,28 @@
     const button = event.target.closest('[data-buy]');
     if (button) buySpins(Number(button.dataset.buy));
   });
-  document.querySelector('#closeRewardButton').addEventListener('click', () => { dom.rewardModal.hidden = true; dom.spin.focus(); });
-  dom.rewardModal.addEventListener('click', event => { if (event.target === dom.rewardModal) dom.rewardModal.hidden = true; });
+  document.querySelector('#closeRewardButton').addEventListener('click', () => {
+    if (rewardModalMode === 'event-claim') {
+      claimEventGift();
+      return;
+    }
+    if (rewardModalMode === 'event-announcement') eventAnnouncementDismissed = true;
+    dom.rewardModal.hidden = true;
+    dom.spin.focus();
+    checkScheduledGift();
+  });
+  dom.rewardModal.addEventListener('click', event => {
+    if (event.target === dom.rewardModal && rewardModalMode !== 'event-claim') {
+      if (rewardModalMode === 'event-announcement') eventAnnouncementDismissed = true;
+      dom.rewardModal.hidden = true;
+      checkScheduledGift();
+    }
+  });
   window.addEventListener('resize', resizeCanvas);
   registerBridge();
   registerAutoSave();
   render();
   saveState();
   resizeCanvas();
+  registerScheduledGift();
 })();
