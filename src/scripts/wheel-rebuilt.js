@@ -22,11 +22,21 @@
     { label: 'Cadeau lunaire', icon: '🌙', color: '#486f85', type: 'gift' },
     { label: '+3 pièces', icon: '🔮', color: '#8b4f89', type: 'coins', amount: 3 }
   ];
-  const challenges = [
-    { id: 'spin-5', title: 'Premiers tours', description: 'Effectue 5 tours au total.', goal: 5, stat: 'totalSpins', reward: 8, rewardType: 'spins', rewardLabel: '+8 tours' },
-    { id: 'gift-3', title: 'Collectionneur', description: 'Découvre 3 cadeaux différents.', goal: 3, stat: 'giftsWon', reward: 8, rewardType: 'coins', rewardLabel: '+8 pièces' },
-    { id: 'coins-20', title: 'Petit trésor', description: 'Gagne 20 pièces avec la roue.', goal: 20, stat: 'coinsEarned', reward: 12, rewardType: 'coins', rewardLabel: '+12 pièces' }
+  const DAILY_SPIN_BONUS = 50;
+  const DAILY_COIN_BONUS = 50;
+  const DAILY_CHALLENGE_TEMPLATES = [
+    { id: 'spin-8', title: 'Échauffement hanté', description: 'Effectue 8 tours aujourd’hui.', goal: 8, stat: 'dailySpins', reward: 8, rewardType: 'coins', rewardLabel: '+8 pièces' },
+    { id: 'spin-15', title: 'Marathon de minuit', description: 'Effectue 15 tours aujourd’hui.', goal: 15, stat: 'dailySpins', reward: 12, rewardType: 'spins', rewardLabel: '+12 tours' },
+    { id: 'spin-25', title: 'Roue sans repos', description: 'Effectue 25 tours aujourd’hui.', goal: 25, stat: 'dailySpins', reward: 20, rewardType: 'coins', rewardLabel: '+20 pièces' },
+    { id: 'gift-2', title: 'Chasseur de cadeaux', description: 'Découvre 2 cadeaux aujourd’hui.', goal: 2, stat: 'dailyGiftsWon', reward: 10, rewardType: 'coins', rewardLabel: '+10 pièces' },
+    { id: 'gift-4', title: 'Trésors d’octobre', description: 'Découvre 4 cadeaux aujourd’hui.', goal: 4, stat: 'dailyGiftsWon', reward: 15, rewardType: 'spins', rewardLabel: '+15 tours' },
+    { id: 'coins-20', title: 'Petite récolte', description: 'Gagne 20 pièces avec la roue aujourd’hui.', goal: 20, stat: 'dailyCoinsEarned', reward: 8, rewardType: 'spins', rewardLabel: '+8 tours' },
+    { id: 'coins-40', title: 'Bourse hantée', description: 'Gagne 40 pièces avec la roue aujourd’hui.', goal: 40, stat: 'dailyCoinsEarned', reward: 15, rewardType: 'coins', rewardLabel: '+15 pièces' },
+    { id: 'coins-60', title: 'Fortune de minuit', description: 'Gagne 60 pièces avec la roue aujourd’hui.', goal: 60, stat: 'dailyCoinsEarned', reward: 20, rewardType: 'spins', rewardLabel: '+20 tours' },
+    { id: 'spin-5-gift', title: 'Tour et surprise', description: 'Effectue 5 tours aujourd’hui.', goal: 5, stat: 'dailySpins', reward: 5, rewardType: 'spins', rewardLabel: '+5 tours' }
   ];
+  let currentDailyKey = getGameDayKey(new Date());
+  let challenges = createDailyChallenges(currentDailyKey);
   const offers = [
     { spins: 1, cost: 10, label: 'Une chance de plus', icon: '🎡' },
     { spins: 5, cost: 40, label: 'Le petit pack', icon: '🎟️' },
@@ -68,16 +78,38 @@
     return Array.from({ length: 500 }, (_, id) => ({ id, name: `${names[Math.floor(id / 25)]} ${objects[id % 20]}`, icon: icons[id % 20] }));
   }
 
+  function getGameDayKey(date) {
+    const gameDay = new Date(date);
+    if (gameDay.getHours() < 6) gameDay.setDate(gameDay.getDate() - 1);
+    return `${gameDay.getFullYear()}-${String(gameDay.getMonth() + 1).padStart(2, '0')}-${String(gameDay.getDate()).padStart(2, '0')}`;
+  }
+
+  function createDailyChallenges(dayKey) {
+    const [year, month, day] = dayKey.split('-').map(Number);
+    const dayNumber = Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+    const combinations = [];
+    for (let first = 0; first < DAILY_CHALLENGE_TEMPLATES.length - 2; first += 1) {
+      for (let second = first + 1; second < DAILY_CHALLENGE_TEMPLATES.length - 1; second += 1) {
+        for (let third = second + 1; third < DAILY_CHALLENGE_TEMPLATES.length; third += 1) {
+          combinations.push([first, second, third]);
+        }
+      }
+    }
+    const combination = combinations[((dayNumber % combinations.length) + combinations.length) % combinations.length];
+    return combination.map(index => ({ ...DAILY_CHALLENGE_TEMPLATES[index], id: `${dayKey}-${DAILY_CHALLENGE_TEMPLATES[index].id}` }));
+  }
+
   function defaultState() {
-    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, claimedChallenges: [], effects: true, sounds: true, music: false, eventGiftClaimed: false };
+    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, dailyDateKey: null, dailySpins: 0, dailyGiftsWon: 0, dailyCoinsEarned: 0, claimedChallenges: [], effects: true, sounds: true, music: false, eventGiftClaimed: false };
   }
 
   function loadState() {
     const fallback = defaultState();
     try {
       const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null');
-      if (!saved || typeof saved !== 'object') return fallback;
-      return {
+      if (!saved || typeof saved !== 'object') return awardDailyBonus(fallback);
+      const sameDailyCycle = saved.dailyDateKey === currentDailyKey;
+      const loaded = {
         ...fallback,
         coins: nonNegativeInteger(saved.coins, fallback.coins),
         spins: nonNegativeInteger(saved.spins, fallback.spins),
@@ -85,15 +117,54 @@
         totalSpins: nonNegativeInteger(saved.totalSpins, 0),
         giftsWon: nonNegativeInteger(saved.giftsWon, 0),
         coinsEarned: nonNegativeInteger(saved.coinsEarned, 0),
-        claimedChallenges: Array.isArray(saved.claimedChallenges) ? saved.claimedChallenges.filter(id => challenges.some(challenge => challenge.id === id)) : [],
+        dailyDateKey: currentDailyKey,
+        dailySpins: sameDailyCycle ? nonNegativeInteger(saved.dailySpins, 0) : 0,
+        dailyGiftsWon: sameDailyCycle ? nonNegativeInteger(saved.dailyGiftsWon, 0) : 0,
+        dailyCoinsEarned: sameDailyCycle ? nonNegativeInteger(saved.dailyCoinsEarned, 0) : 0,
+        claimedChallenges: sameDailyCycle && Array.isArray(saved.claimedChallenges) ? saved.claimedChallenges.filter(id => challenges.some(challenge => challenge.id === id)) : [],
         effects: saved.effects !== false,
         sounds: saved.sounds !== false,
         music: saved.music === true,
         eventGiftClaimed: saved.eventGiftClaimed === true
       };
+      return sameDailyCycle ? loaded : awardDailyBonus(loaded);
     } catch {
-      return fallback;
+      return awardDailyBonus(fallback);
     }
+  }
+
+  function awardDailyBonus(targetState) {
+    targetState.coins += DAILY_COIN_BONUS;
+    targetState.spins += DAILY_SPIN_BONUS;
+    targetState.dailyDateKey = currentDailyKey;
+    targetState.dailySpins = 0;
+    targetState.dailyGiftsWon = 0;
+    targetState.dailyCoinsEarned = 0;
+    targetState.claimedChallenges = [];
+    return targetState;
+  }
+
+  function checkDailyReset() {
+    const todayKey = getGameDayKey(new Date());
+    if (todayKey === currentDailyKey) return false;
+    currentDailyKey = todayKey;
+    challenges = createDailyChallenges(currentDailyKey);
+    awardDailyBonus(state);
+    saveState();
+    render();
+    return true;
+  }
+
+  function updateDailyResetCountdown() {
+    const nextReset = new Date();
+    nextReset.setHours(6, 0, 0, 0);
+    if (Date.now() >= nextReset.getTime()) nextReset.setDate(nextReset.getDate() + 1);
+    const remainingSeconds = Math.max(0, Math.floor((nextReset.getTime() - Date.now()) / 1000));
+    const hours = Math.floor(remainingSeconds / 3600);
+    const minutes = Math.floor((remainingSeconds % 3600) / 60);
+    const seconds = remainingSeconds % 60;
+    const countdown = document.querySelector('#dailyResetCountdown');
+    if (countdown) countdown.textContent = `Prochain bonus et renouvellement des défis dans ${hours} h ${String(minutes).padStart(2, '0')} min ${String(seconds).padStart(2, '0')} s (à 6 h).`;
   }
 
   function nonNegativeInteger(value, fallback) {
@@ -110,25 +181,32 @@
   }
 
   function registerAutoSave() {
-    const saveWhenHidden = () => {
+    window.addEventListener('pagehide', saveState);
+    window.addEventListener('beforeunload', saveState);
+    document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         saveState();
         stopMusic();
         if (audioContext && audioContext.state === 'running') audioContext.suspend().catch(() => {});
-      } else if (state.music) {
-        startMusic();
+      } else {
+        checkDailyReset();
+        updateDailyResetCountdown();
+        if (state.music) startMusic();
       }
-    };
-    window.addEventListener('pagehide', saveState);
-    window.addEventListener('beforeunload', saveState);
-    document.addEventListener('visibilitychange', saveWhenHidden);
+    });
+    window.setInterval(() => {
+      checkDailyReset();
+      updateDailyResetCountdown();
+    }, 1000);
   }
 
   function getPublicState() {
     return {
       coins: state.coins, spins: state.spins, collection: [...state.collection],
       totalSpins: state.totalSpins, giftsWon: state.giftsWon,
-      coinsEarned: state.coinsEarned, claimedChallenges: [...state.claimedChallenges],
+      coinsEarned: state.coinsEarned, dailyDateKey: state.dailyDateKey,
+      dailySpins: state.dailySpins, dailyGiftsWon: state.dailyGiftsWon,
+      dailyCoinsEarned: state.dailyCoinsEarned, claimedChallenges: [...state.claimedChallenges],
       effects: state.effects, sounds: state.sounds, music: state.music,
       eventGiftClaimed: state.eventGiftClaimed
     };
@@ -258,6 +336,7 @@
     renderCollection();
     renderChallenges();
     renderShop();
+    updateDailyResetCountdown();
   }
 
   function renderWheel() {
@@ -332,6 +411,7 @@
   }
 
   function spin() {
+    checkDailyReset();
     if (spinning || state.spins < 1) return;
     const context = getAudioContext();
     if (context && context.state === 'suspended') context.resume().catch(() => {});
@@ -339,8 +419,10 @@
     spinning = true;
     state.spins -= 1;
     state.totalSpins += 1;
+    state.dailySpins += 1;
     state.coins += 1;
     state.coinsEarned += 1;
+    state.dailyCoinsEarned += 1;
     saveState();
     render();
     const index = Math.floor(Math.random() * segments.length);
@@ -382,6 +464,7 @@
     if (segment.type === 'coins') {
       state.coins += segment.amount;
       state.coinsEarned += segment.amount;
+      state.dailyCoinsEarned += segment.amount;
       return { icon: segment.icon, title: `+${segment.amount} ${segment.amount > 1 ? 'pièces' : 'pièce'}`, copy: 'Ton portefeuille vient d’être mis à jour.' };
     }
     if (segment.type === 'spins') {
@@ -392,11 +475,13 @@
     if (available.length === 0) {
       state.coins += 10;
       state.coinsEarned += 10;
+      state.dailyCoinsEarned += 10;
       return { icon: '🎉', title: 'Collection complète !', copy: 'Tu as découvert les 500 cadeaux : voici 10 pièces bonus.' };
     }
     const gift = available[Math.floor(Math.random() * available.length)];
     state.collection.push(gift.id);
     state.giftsWon += 1;
+    state.dailyGiftsWon += 1;
     return { icon: gift.icon, title: gift.name, copy: 'Nouveau cadeau ajouté à ta collection !' };
   }
 
@@ -560,6 +645,7 @@
   }
 
   function claimChallenge(id) {
+    checkDailyReset();
     const challenge = challenges.find(item => item.id === id);
     if (!challenge || state.claimedChallenges.includes(id) || state[challenge.stat] < challenge.goal) return;
     state.claimedChallenges.push(id);
@@ -570,6 +656,7 @@
   }
 
   function buySpins(amount) {
+    checkDailyReset();
     const offer = offers.find(item => item.spins === amount);
     if (!offer || state.coins < offer.cost) return;
     state.coins -= offer.cost;
