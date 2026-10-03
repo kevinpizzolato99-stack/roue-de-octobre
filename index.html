@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#100d19">
+  <title>La roue hantée — Édition octobre</title>
+  <link rel="stylesheet" href="./src/styles/wheel-rebuilt.css">
+  <script defer src="./src/scripts/wheel-rebuilt.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#wheel" aria-label="La roue hantée, accueil">
+        <span class="brand-icon" aria-hidden="true">🎃</span>
+        <span><strong>LA ROUE HANTÉE</strong><small>ÉDITION OCTOBRE · ÉVÉNEMENT HALLOWEEN</small></span>
+      </a>
+      <div class="wallet" aria-label="Ressources du joueur">
+        <div class="wallet-chip"><span aria-hidden="true">🪙</span><strong id="coinCount">0</strong><small>PIÈCES</small></div>
+        <div class="wallet-chip"><span aria-hidden="true">🎡</span><strong id="spinCount">5</strong><small>TOURS</small></div>
+        <div class="wallet-chip"><span aria-hidden="true">🎁</span><strong id="collectionCount">0 / 500</strong><small>COLLECTION</small></div>
+      </div>
+    </header>
+
+    <nav class="main-nav" aria-label="Menu principal">
+      <button class="nav-button active" data-page="wheel" type="button">🎡 <span>Roue</span></button>
+      <button class="nav-button" data-page="collection" type="button">🎁 <span>Collection</span></button>
+      <button class="nav-button" data-page="challenges" type="button">🎯 <span>Défis</span></button>
+      <button class="nav-button" data-page="shop" type="button">🪙 <span>Boutique</span></button>
+      <button class="nav-button" data-page="settings" type="button">⚙️ <span>Options</span></button>
+    </nav>
+
+    <main>
+      <section class="page active" data-screen="wheel" aria-label="Roue à cadeaux">
+        <div class="game-layout">
+          <section class="panel wheel-panel">
+            <div class="screen-heading">
+              <div><p class="eyebrow">🎃 ÉVÉNEMENT D'OCTOBRE</p><h1>La roue hantée</h1></div>
+              <span class="live-tag"><i></i><span id="spinStatus">PRÊTE À TOURNER</span></span>
+            </div>
+            <div class="wheel-stage">
+              <div class="stage-glow" aria-hidden="true"></div>
+              <div class="pointer" aria-hidden="true">▼</div>
+              <canvas id="gameCanvas" aria-label="Roue de prix d'Halloween"></canvas>
+              <div class="center-button-wrap"><button id="spinButton" class="spin-button" type="button"><span class="spin-icon" aria-hidden="true">🎡</span><strong>TOURNER</strong><small id="spinButtonHint">5 TOURS DISPONIBLES</small></button></div>
+            </div>
+            <div class="wheel-foot"><span>🎁 <strong id="miniCollection">0 / 500</strong> cadeaux découverts</span><span>🪙 <strong>+1 pièce</strong> par tour</span></div>
+          </section>
+          <aside class="side-stack">
+            <section class="panel side-card">
+              <div class="side-title"><div><span class="side-kicker">TA COLLECTION</span><h2>Prochain objectif</h2></div><span class="count-badge" id="collectionBadge">0 / 500</span></div>
+              <div class="progress-track"><span id="collectionProgressBar"></span></div>
+              <p class="side-copy">Découvre les 500 cadeaux de l'événement. Chaque tour peut révéler une nouvelle surprise.</p>
+              <button class="secondary-button full-width" data-go="collection" type="button">VOIR LA COLLECTION <span>→</span></button>
+            </section>
+            <section class="panel side-card challenge-card">
+              <div class="side-title"><div><span class="side-kicker">PETIT DÉFI</span><h2 id="quickChallengeTitle">À toi de jouer !</h2></div><span class="challenge-icon">🎯</span></div>
+              <p class="side-copy" id="quickChallengeText">Fais 5 tours pour récupérer une récompense bonus.</p>
+              <div class="progress-track"><span id="quickChallengeProgress"></span></div>
+              <button class="text-button" data-go="challenges" type="button">TOUS LES DÉFIS →</button>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page" data-screen="collection" hidden>
+        <div class="page-heading"><div><p class="eyebrow">🎁 500 OBJETS À DÉCOUVRIR</p><h1>La collection</h1><p>Chaque tour peut dévoiler un nouveau cadeau hanté.</p></div><div class="collection-total"><strong id="collectionTotal">0 / 500</strong><span>CADEAUX DÉCOUVERTS</span></div></div>
+        <div class="toolbar"><label for="collectionFilter">FILTRER</label><select id="collectionFilter"><option value="all">Tous les cadeaux</option><option value="owned">Découverts</option><option value="locked">À découvrir</option></select><span id="collectionResults" class="muted-label"></span></div>
+        <div id="giftGrid" class="gift-grid"></div>
+      </section>
+
+      <section class="page" data-screen="challenges" hidden>
+        <div class="page-heading"><div><p class="eyebrow">🎯 OBJECTIFS FACULTATIFS</p><h1>Défis spéciaux</h1><p>Joue, collectionne et récupère des bonus en cours de route.</p></div><div class="collection-total"><strong id="challengeRewards">0</strong><span>RÉCOMPENSES RÉCUPÉRÉES</span></div></div>
+        <div id="challengeList" class="challenge-list"></div>
+      </section>
+
+      <section class="page" data-screen="shop" hidden>
+        <div class="page-heading"><div><p class="eyebrow">🪙 UTILISE TES PIÈCES</p><h1>Boutique de tours</h1><p>Échange tes pièces contre des tours supplémentaires.</p></div><div class="collection-total"><strong><span id="shopCoins">0</span> 🪙</strong><span>TON SOLDE</span></div></div>
+        <div id="shopOffers" class="shop-grid"></div>
+      </section>
+
+      <section class="page" data-screen="settings" hidden>
+        <div class="page-heading"><div><p class="eyebrow">⚙️ TON EXPÉRIENCE</p><h1>Options</h1><p>Ces préférences sont sauvegardées sur cet appareil.</p></div></div>
+        <div class="panel settings-panel">
+          <label class="setting-row"><span><strong>✨ Effets visuels</strong><small>Active les lueurs et animations de la roue.</small></span><input id="effectsToggle" type="checkbox" checked></label>
+          <div class="setting-row"><span><strong>Progression locale</strong><small>Ta collection et tes pièces restent enregistrées dans ce navigateur.</small></span><span class="saved-tag">SAUVEGARDE AUTO</span></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-footer">Prototype de jeu · Tous les lots sont virtuels et sans valeur monétaire.</footer>
+  </div>
+
+  <div id="rewardModal" class="modal-backdrop" hidden>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="rewardTitle">
+      <div class="modal-decoration" aria-hidden="true">🎃 <span>✦</span> 🕯️</div>
+      <p class="eyebrow" id="rewardEyebrow">NOUVEAU CADEAU</p>
+      <h2 id="rewardTitle">C'est gagné !</h2>
+      <div class="reward-object" id="rewardObject">🎁</div>
+      <strong class="reward-name" id="rewardName"></strong>
+      <p class="reward-copy" id="rewardCopy"></p>
+      <button id="closeRewardButton" class="primary-button" type="button">CONTINUER À JOUER</button>
+    </section>
+  </div>
+</body>
+</html>

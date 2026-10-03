@@ -1,0 +1,371 @@
+(() => {
+  'use strict';
+
+  const STORAGE_KEY = 'bezi-gift-wheel-rebuilt-v2';
+  const FULL_TURN = Math.PI * 2;
+  const gifts = createGiftCatalog();
+  const segments = [
+    { label: 'Petit cadeau', icon: '🎁', color: '#9a4f83', type: 'gift' },
+    { label: '+2 pièces', icon: '🪙', color: '#b96b34', type: 'coins', amount: 2 },
+    { label: '+1 tour', icon: '🎡', color: '#557f9e', type: 'spins', amount: 1 },
+    { label: 'Cadeau rare', icon: '💜', color: '#7655a0', type: 'gift' },
+    { label: '+5 pièces', icon: '✨', color: '#a95835', type: 'coins', amount: 5 },
+    { label: 'Surprise', icon: '🎃', color: '#8d4b72', type: 'gift' },
+    { label: '+2 tours', icon: '🎟️', color: '#567a72', type: 'spins', amount: 2 },
+    { label: '+10 pièces', icon: '🪙', color: '#af6838', type: 'coins', amount: 10 },
+    { label: 'Cadeau mystère', icon: '👻', color: '#67549a', type: 'gift' },
+    { label: '+1 pièce', icon: '⭐', color: '#98613e', type: 'coins', amount: 1 },
+    { label: 'Cadeau lunaire', icon: '🌙', color: '#486f85', type: 'gift' },
+    { label: '+3 pièces', icon: '🔮', color: '#8b4f89', type: 'coins', amount: 3 }
+  ];
+  const challenges = [
+    { id: 'spin-5', title: 'Premiers tours', description: 'Effectue 5 tours au total.', goal: 5, stat: 'totalSpins', reward: 8, rewardType: 'spins', rewardLabel: '+8 tours' },
+    { id: 'gift-3', title: 'Collectionneur', description: 'Découvre 3 cadeaux différents.', goal: 3, stat: 'giftsWon', reward: 8, rewardType: 'coins', rewardLabel: '+8 pièces' },
+    { id: 'coins-20', title: 'Petit trésor', description: 'Gagne 20 pièces avec la roue.', goal: 20, stat: 'coinsEarned', reward: 12, rewardType: 'coins', rewardLabel: '+12 pièces' }
+  ];
+  const offers = [
+    { spins: 1, cost: 10, label: 'Une chance de plus', icon: '🎡' },
+    { spins: 5, cost: 40, label: 'Le petit pack', icon: '🎟️' },
+    { spins: 15, cost: 100, label: 'Le grand pack', icon: '🎃' }
+  ];
+  const dom = {
+    canvas: document.querySelector('#gameCanvas'), spin: document.querySelector('#spinButton'),
+    coins: document.querySelector('#coinCount'), spins: document.querySelector('#spinCount'),
+    collectionCount: document.querySelector('#collectionCount'), miniCollection: document.querySelector('#miniCollection'),
+    collectionBadge: document.querySelector('#collectionBadge'), collectionTotal: document.querySelector('#collectionTotal'),
+    collectionProgressBar: document.querySelector('#collectionProgressBar'), spinHint: document.querySelector('#spinButtonHint'),
+    spinStatus: document.querySelector('#spinStatus'), quickTitle: document.querySelector('#quickChallengeTitle'),
+    quickText: document.querySelector('#quickChallengeText'), quickProgress: document.querySelector('#quickChallengeProgress'),
+    giftGrid: document.querySelector('#giftGrid'), collectionFilter: document.querySelector('#collectionFilter'),
+    collectionResults: document.querySelector('#collectionResults'), challengeList: document.querySelector('#challengeList'),
+    challengeRewards: document.querySelector('#challengeRewards'), shopCoins: document.querySelector('#shopCoins'),
+    shopOffers: document.querySelector('#shopOffers'), effects: document.querySelector('#effectsToggle'),
+    rewardModal: document.querySelector('#rewardModal'), rewardEyebrow: document.querySelector('#rewardEyebrow'),
+    rewardTitle: document.querySelector('#rewardTitle'), rewardObject: document.querySelector('#rewardObject'),
+    rewardName: document.querySelector('#rewardName'), rewardCopy: document.querySelector('#rewardCopy')
+  };
+  let state = loadState();
+  let rotation = 0;
+  let spinning = false;
+  let canvasContext = dom.canvas.getContext('2d');
+
+  function createGiftCatalog() {
+    const names = ['Brume', 'Lueur', 'Velours', 'Éclat', 'Mystère', 'Minuit', 'Cendre', 'Lune', 'Sortilège', 'Nocturne', 'Cristal', 'Citrouille', 'Flamme', 'Ombre', 'Étoile', 'Potion', 'Sorcier', 'Spectre', 'Rêve', 'Encre'];
+    const objects = ['Citrouille', 'Chat noir', 'Fantôme', 'Chauve-souris', 'Chapeau', 'Potion', 'Lanterne', 'Cristal', 'Corbeau', 'Araignée', 'Bougie', 'Masque', 'Grimoire', 'Bonbon', 'Chaudron', 'Hibou', 'Lune', 'Étoile', 'Balai', 'Toile'];
+    const icons = ['🎃', '🐈‍⬛', '👻', '🦇', '🧙', '🧪', '🏮', '🔮', '🐦‍⬛', '🕷️', '🕯️', '🎭', '📜', '🍬', '⚗️', '🦉', '🌙', '✨', '🪄', '🕸️'];
+    return Array.from({ length: 500 }, (_, id) => ({ id, name: `${names[Math.floor(id / 25)]} ${objects[id % 20]}`, icon: icons[id % 20] }));
+  }
+
+  function defaultState() {
+    return { coins: 0, spins: 5, collection: [], totalSpins: 0, giftsWon: 0, coinsEarned: 0, claimedChallenges: [], effects: true };
+  }
+
+  function loadState() {
+    const fallback = defaultState();
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null');
+      if (!saved || typeof saved !== 'object') return fallback;
+      return {
+        ...fallback,
+        coins: nonNegativeInteger(saved.coins, fallback.coins),
+        spins: nonNegativeInteger(saved.spins, fallback.spins),
+        collection: Array.isArray(saved.collection) ? [...new Set(saved.collection.map(Number).filter(id => Number.isInteger(id) && id >= 0 && id < gifts.length))] : [],
+        totalSpins: nonNegativeInteger(saved.totalSpins, 0),
+        giftsWon: nonNegativeInteger(saved.giftsWon, 0),
+        coinsEarned: nonNegativeInteger(saved.coinsEarned, 0),
+        claimedChallenges: Array.isArray(saved.claimedChallenges) ? saved.claimedChallenges.filter(id => challenges.some(challenge => challenge.id === id)) : [],
+        effects: saved.effects !== false
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  function nonNegativeInteger(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+  }
+
+  function saveState() {
+    const snapshot = getPublicState();
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch { /* Storage can be disabled for local files. */ }
+    if (window.Bezi && typeof window.Bezi.setData === 'function') {
+      try { window.Bezi.setData(snapshot); } catch { /* Keep local play working if the optional host bridge is unavailable. */ }
+    }
+  }
+
+  function registerAutoSave() {
+    const saveWhenHidden = () => {
+      if (document.visibilityState === 'hidden') saveState();
+    };
+    window.addEventListener('pagehide', saveState);
+    window.addEventListener('beforeunload', saveState);
+    document.addEventListener('visibilitychange', saveWhenHidden);
+  }
+
+  function getPublicState() {
+    return {
+      coins: state.coins, spins: state.spins, collection: [...state.collection],
+      totalSpins: state.totalSpins, giftsWon: state.giftsWon,
+      coinsEarned: state.coinsEarned, claimedChallenges: [...state.claimedChallenges], effects: state.effects
+    };
+  }
+
+  function registerBridge() {
+    if (window.Bezi && typeof window.Bezi.onDataRequest === 'function') {
+      try { window.Bezi.onDataRequest(() => getPublicState()); } catch { /* Browser version does not require the host bridge. */ }
+    }
+  }
+
+  function render() {
+    renderWheel();
+    const total = state.collection.length;
+    dom.coins.textContent = String(state.coins);
+    dom.spins.textContent = String(state.spins);
+    dom.collectionCount.textContent = `${total} / ${gifts.length}`;
+    dom.miniCollection.textContent = `${total} / ${gifts.length}`;
+    dom.collectionBadge.textContent = `${total} / ${gifts.length}`;
+    dom.collectionTotal.textContent = `${total} / ${gifts.length}`;
+    dom.collectionProgressBar.style.width = `${total / gifts.length * 100}%`;
+    dom.spinHint.textContent = `${state.spins} ${state.spins === 1 ? 'TOUR DISPONIBLE' : 'TOURS DISPONIBLES'}`;
+    dom.spin.disabled = spinning || state.spins < 1;
+    dom.spinStatus.textContent = spinning ? 'LA ROUE TOURNE…' : state.spins > 0 ? 'PRÊTE À TOURNER' : 'PLUS DE TOURS';
+    dom.effects.checked = state.effects;
+    document.body.classList.toggle('no-effects', !state.effects);
+    dom.challengeRewards.textContent = String(state.claimedChallenges.length);
+    dom.shopCoins.textContent = String(state.coins);
+    renderQuickChallenge();
+    renderCollection();
+    renderChallenges();
+    renderShop();
+  }
+
+  function renderWheel() {
+    const rect = dom.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height || !canvasContext) return;
+    const size = Math.min(rect.width, rect.height);
+    const center = size / 2;
+    const radius = size * .45;
+    const step = FULL_TURN / segments.length;
+    canvasContext.clearRect(0, 0, rect.width, rect.height);
+    canvasContext.save();
+    canvasContext.translate(rect.width / 2, rect.height / 2);
+    canvasContext.rotate(rotation);
+    segments.forEach((segment, index) => {
+      const start = -Math.PI / 2 + index * step;
+      const end = start + step;
+      canvasContext.beginPath();
+      canvasContext.moveTo(0, 0);
+      canvasContext.arc(0, 0, radius, start, end);
+      canvasContext.closePath();
+      canvasContext.fillStyle = segment.color;
+      canvasContext.fill();
+      canvasContext.strokeStyle = '#ffe3bd88';
+      canvasContext.lineWidth = Math.max(1.5, size * .004);
+      canvasContext.stroke();
+      const middle = start + step / 2;
+      const labelRadius = radius * .72;
+      canvasContext.save();
+      canvasContext.translate(Math.cos(middle) * labelRadius, Math.sin(middle) * labelRadius);
+      canvasContext.rotate(middle + Math.PI / 2);
+      canvasContext.textAlign = 'center';
+      canvasContext.textBaseline = 'middle';
+      canvasContext.font = `${Math.round(size * .044)}px system-ui, sans-serif`;
+      canvasContext.fillStyle = '#fff7eb';
+      canvasContext.shadowColor = '#180f20';
+      canvasContext.shadowBlur = 4;
+      canvasContext.fillText(segment.icon, 0, -size * .032);
+      canvasContext.font = `700 ${Math.round(size * .023)}px system-ui, sans-serif`;
+      canvasContext.fillText(segment.label, 0, size * .025, size * .15);
+      canvasContext.restore();
+    });
+    canvasContext.beginPath();
+    canvasContext.arc(0, 0, radius, 0, FULL_TURN);
+    canvasContext.strokeStyle = '#ffd68c';
+    canvasContext.lineWidth = Math.max(5, size * .018);
+    canvasContext.stroke();
+    canvasContext.restore();
+    canvasContext.save();
+    canvasContext.translate(rect.width / 2, rect.height / 2);
+    canvasContext.beginPath();
+    canvasContext.arc(0, 0, size * .095, 0, FULL_TURN);
+    canvasContext.fillStyle = '#2a1830';
+    canvasContext.fill();
+    canvasContext.strokeStyle = '#ffe0a0';
+    canvasContext.lineWidth = Math.max(3, size * .012);
+    canvasContext.stroke();
+    canvasContext.font = `${Math.round(size * .071)}px system-ui, sans-serif`;
+    canvasContext.textAlign = 'center';
+    canvasContext.textBaseline = 'middle';
+    canvasContext.fillText('🎃', 0, 1);
+    canvasContext.restore();
+  }
+
+  function resizeCanvas() {
+    const rect = dom.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    dom.canvas.width = Math.round(rect.width * ratio);
+    dom.canvas.height = Math.round(rect.height * ratio);
+    canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+    renderWheel();
+  }
+
+  function spin() {
+    if (spinning || state.spins < 1) return;
+    spinning = true;
+    state.spins -= 1;
+    state.totalSpins += 1;
+    state.coins += 1;
+    state.coinsEarned += 1;
+    saveState();
+    render();
+    const index = Math.floor(Math.random() * segments.length);
+    const step = FULL_TURN / segments.length;
+    const normalized = ((rotation % FULL_TURN) + FULL_TURN) % FULL_TURN;
+    const targetModulo = (FULL_TURN - ((index + .5) * step % FULL_TURN)) % FULL_TURN;
+    const delta = (targetModulo - normalized + FULL_TURN) % FULL_TURN;
+    const startRotation = rotation;
+    const totalRotation = startRotation + FULL_TURN * (5 + Math.floor(Math.random() * 3)) + delta;
+    const startedAt = performance.now();
+    const duration = 4300;
+
+    function animate(now) {
+      const t = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - t, 4);
+      rotation = startRotation + (totalRotation - startRotation) * eased;
+      renderWheel();
+      if (t < 1) {
+        requestAnimationFrame(animate);
+        return;
+      }
+      rotation = totalRotation;
+      spinning = false;
+      const result = award(segments[index]);
+      saveState();
+      render();
+      showReward(result);
+    }
+    requestAnimationFrame(animate);
+  }
+
+  function award(segment) {
+    if (segment.type === 'coins') {
+      state.coins += segment.amount;
+      state.coinsEarned += segment.amount;
+      return { icon: segment.icon, title: `+${segment.amount} ${segment.amount > 1 ? 'pièces' : 'pièce'}`, copy: 'Ton portefeuille vient d’être mis à jour.' };
+    }
+    if (segment.type === 'spins') {
+      state.spins += segment.amount;
+      return { icon: segment.icon, title: `+${segment.amount} ${segment.amount > 1 ? 'tours' : 'tour'}`, copy: 'Tu peux déjà relancer la roue !' };
+    }
+    const available = gifts.filter(gift => !state.collection.includes(gift.id));
+    if (available.length === 0) {
+      state.coins += 10;
+      state.coinsEarned += 10;
+      return { icon: '🎉', title: 'Collection complète !', copy: 'Tu as découvert les 500 cadeaux : voici 10 pièces bonus.' };
+    }
+    const gift = available[Math.floor(Math.random() * available.length)];
+    state.collection.push(gift.id);
+    state.giftsWon += 1;
+    return { icon: gift.icon, title: gift.name, copy: 'Nouveau cadeau ajouté à ta collection !' };
+  }
+
+  function showReward(result) {
+    dom.rewardEyebrow.textContent = result.copy.includes('Nouveau cadeau') ? 'NOUVEAU CADEAU' : 'RÉCOMPENSE OBTENUE';
+    dom.rewardTitle.textContent = result.copy.includes('Collection complète') ? 'Collection complète !' : 'C’est gagné !';
+    dom.rewardObject.textContent = result.icon;
+    dom.rewardName.textContent = result.title;
+    dom.rewardCopy.textContent = result.copy;
+    dom.rewardModal.hidden = false;
+    document.querySelector('#closeRewardButton').focus();
+  }
+
+  function renderCollection() {
+    const filter = dom.collectionFilter.value;
+    const owned = new Set(state.collection);
+    const visible = gifts.filter(gift => filter === 'all' || (filter === 'owned' ? owned.has(gift.id) : !owned.has(gift.id)));
+    dom.collectionResults.textContent = `${visible.length} cadeau${visible.length === 1 ? '' : 'x'}`;
+    dom.giftGrid.innerHTML = visible.map(gift => {
+      const unlocked = owned.has(gift.id);
+      return `<article class="gift-card ${unlocked ? 'owned' : ''}"><div class="gift-emoji">${unlocked ? gift.icon : '🔒'}</div><div class="gift-name">${unlocked ? escapeHtml(gift.name) : 'Cadeau mystérieux'}</div><div class="gift-lock">${unlocked ? 'Découvert' : 'À découvrir'}</div></article>`;
+    }).join('');
+  }
+
+  function renderChallenges() {
+    dom.challengeList.innerHTML = challenges.map(challenge => {
+      const progress = state[challenge.stat];
+      const claimed = state.claimedChallenges.includes(challenge.id);
+      const complete = progress >= challenge.goal;
+      const percent = Math.min(100, progress / challenge.goal * 100);
+      return `<article class="challenge-item"><p class="eyebrow">DÉFI ${claimed ? 'TERMINÉ' : 'OPTIONNEL'}</p><h2>${escapeHtml(challenge.title)}</h2><p>${escapeHtml(challenge.description)}</p><div class="progress-track"><span style="width:${percent}%"></span></div><p>${Math.min(progress, challenge.goal)} / ${challenge.goal} · <span class="challenge-reward">${challenge.rewardLabel}</span></p><button class="secondary-button" data-claim="${challenge.id}" ${!complete || claimed ? 'disabled' : ''} type="button">${claimed ? 'RÉCOMPENSE RÉCUPÉRÉE' : complete ? 'RÉCUPÉRER' : 'EN COURS'}</button></article>`;
+    }).join('');
+  }
+
+  function renderQuickChallenge() {
+    const challenge = challenges.find(item => !state.claimedChallenges.includes(item.id)) || challenges[0];
+    const progress = state[challenge.stat];
+    dom.quickTitle.textContent = challenge.title;
+    dom.quickText.textContent = `${challenge.description} Récompense : ${challenge.rewardLabel}.`;
+    dom.quickProgress.style.width = `${Math.min(100, progress / challenge.goal * 100)}%`;
+  }
+
+  function renderShop() {
+    dom.shopOffers.innerHTML = offers.map(offer => `<article class="offer-card"><div class="offer-emoji">${offer.icon}</div><h2>${offer.label}</h2><p>Ajoute ${offer.spins} ${offer.spins === 1 ? 'tour' : 'tours'} à ta réserve.</p><div class="price">${offer.cost} 🪙</div><button class="secondary-button" data-buy="${offer.spins}" type="button" ${state.coins < offer.cost ? 'disabled' : ''}>ACHETER</button></article>`).join('');
+  }
+
+  function claimChallenge(id) {
+    const challenge = challenges.find(item => item.id === id);
+    if (!challenge || state.claimedChallenges.includes(id) || state[challenge.stat] < challenge.goal) return;
+    state.claimedChallenges.push(id);
+    if (challenge.rewardType === 'spins') state.spins += challenge.reward;
+    else state.coins += challenge.reward;
+    saveState();
+    render();
+  }
+
+  function buySpins(amount) {
+    const offer = offers.find(item => item.spins === amount);
+    if (!offer || state.coins < offer.cost) return;
+    state.coins -= offer.cost;
+    state.spins += offer.spins;
+    saveState();
+    render();
+  }
+
+  function setPage(pageName) {
+    document.querySelectorAll('[data-screen]').forEach(section => {
+      const active = section.dataset.screen === pageName;
+      section.hidden = !active;
+      section.classList.toggle('active', active);
+    });
+    document.querySelectorAll('.nav-button').forEach(button => button.classList.toggle('active', button.dataset.page === pageName));
+    if (pageName === 'wheel') requestAnimationFrame(resizeCanvas);
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+  }
+
+  document.querySelectorAll('.nav-button').forEach(button => button.addEventListener('click', () => setPage(button.dataset.page)));
+  document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => setPage(button.dataset.go)));
+  dom.spin.addEventListener('click', spin);
+  dom.collectionFilter.addEventListener('change', renderCollection);
+  dom.effects.addEventListener('change', () => { state.effects = dom.effects.checked; saveState(); render(); });
+  dom.challengeList.addEventListener('click', event => {
+    const button = event.target.closest('[data-claim]');
+    if (button) claimChallenge(button.dataset.claim);
+  });
+  dom.shopOffers.addEventListener('click', event => {
+    const button = event.target.closest('[data-buy]');
+    if (button) buySpins(Number(button.dataset.buy));
+  });
+  document.querySelector('#closeRewardButton').addEventListener('click', () => { dom.rewardModal.hidden = true; dom.spin.focus(); });
+  dom.rewardModal.addEventListener('click', event => { if (event.target === dom.rewardModal) dom.rewardModal.hidden = true; });
+  window.addEventListener('resize', resizeCanvas);
+  registerBridge();
+  registerAutoSave();
+  render();
+  saveState();
+  resizeCanvas();
+})();
